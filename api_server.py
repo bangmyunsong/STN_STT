@@ -13,7 +13,7 @@ import uuid
 import json
 import os
 import tempfile
-import whisper
+import whisper  # Render 메모리 절약을 위한 극한 최적화 버전
 from datetime import datetime, timedelta
 import logging
 import threading
@@ -321,47 +321,67 @@ def initialize_models():
     
     logger.info("🚀 모델 초기화 시작...")
 
-    # 극단적 메모리 최적화 설정 (Render 512MB 제한 대응)
+    # Render 512MB 극한 메모리 최적화 모드
     import os
     import gc
+    import psutil
     
-    # 스레드 수 제한
+    # 극한 메모리 최적화 설정
     os.environ["OMP_NUM_THREADS"] = "1"
-    os.environ["MKL_NUM_THREADS"] = "1" 
+    os.environ["MKL_NUM_THREADS"] = "1"
+    os.environ["NUMEXPR_NUM_THREADS"] = "1"
     os.environ["TOKENIZERS_PARALLELISM"] = "false"
-    os.environ["TORCH_NUM_THREADS"] = "1"
+    os.environ["PYTORCH_JIT"] = "0"
+    os.environ["CUDA_VISIBLE_DEVICES"] = ""
+    os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:128"
     
-    # 메모리 최적화 플래그
-    os.environ["PYTORCH_JIT"] = "0"  # JIT 컴파일 비활성화
-    os.environ["CUDA_VISIBLE_DEVICES"] = ""  # CUDA 완전 비활성화
+    # 메모리 상태 체크 함수
+    def log_memory(stage="Unknown"):
+        try:
+            process = psutil.Process()
+            memory_mb = process.memory_info().rss / 1024 / 1024
+            logger.info(f"🧠 [{stage}] 메모리: {memory_mb:.1f}MB / 512MB")
+            if memory_mb > 400:
+                logger.warning(f"⚠️ 메모리 위험 수준: {memory_mb:.1f}MB")
+                gc.collect()
+            return memory_mb
+        except Exception as e:
+            logger.warning(f"메모리 체크 실패: {e}")
+            return 0
     
     # 가비지 컬렉션 강제 실행
     gc.collect()
+    log_memory("초기화 시작")
     
-    logger.info("💾 극단적 메모리 최적화 설정 완료 (Render 512MB 대응)")
+    logger.info("💾 극한 메모리 최적화 모드 (Whisper tiny 모델)")
     
-    # 1. Whisper 모델 로드 (가장 중요)
+    # 1. Whisper tiny 모델 로드 (극한 최적화)
     try:
-        logger.info("1️⃣ Whisper 모델 로딩 중... (인터넷 연결 필요)")
+        logger.info("1️⃣ Whisper tiny 모델 로딩 중... (메모리 최적화)")
         
-        # 모델 로딩 시간 측정
-        import time
-        start_time = time.time()
-        # 환경변수에서 모델 크기 가져오기 (기본값: tiny)
+        # 모델 로딩 전 메모리 체크
+        log_memory("모델 로딩 전")
+        
+        # tiny 모델만 로드 (39MB) - 가장 작은 모델
         model_size = os.getenv("STT_MODEL", "tiny")
         logger.info(f"🔧 환경변수 STT_MODEL: {model_size}")
+        
+        # tiny로 강제 설정 (메모리 절약)
+        if model_size != "tiny":
+            logger.warning(f"⚠️ Render 512MB 제한으로 인해 {model_size} → tiny로 변경")
+            model_size = "tiny"
+        
         whisper_model = whisper.load_model(model_size)
-        loading_time = time.time() - start_time
+        logger.info("✅ Whisper tiny 모델 로딩 완료")
         
-        logger.info(f"✅ Whisper {model_size} 모델 로딩 완료 (소요시간: {loading_time:.2f}초)")
+        # 모델 로딩 후 메모리 체크
+        log_memory("모델 로딩 후")
         
-        # 모델을 캐시에 저장
+        # 캐시에 저장
         cached_whisper_models[model_size] = whisper_model
         
     except Exception as e:
         logger.error(f"❌ Whisper 모델 로딩 실패: {e}")
-        logger.error("💡 해결방법: 인터넷 연결 확인 또는 캐시된 모델 사용")
-        logger.error("💡 체크섬 오류 시: ~/.cache/whisper 폴더 삭제 후 재시도")
         raise
     
     # 2. ERP Extractor 초기화 (선택적)
@@ -388,7 +408,7 @@ def initialize_models():
 
 # 의존성 함수
 def get_whisper_model():
-    """Whisper 모델 의존성"""
+    """Whisper 모델 의존성 (극한 메모리 최적화)"""
     if whisper_model is None:
         raise HTTPException(status_code=500, detail="Whisper 모델이 초기화되지 않았습니다")
     return whisper_model
@@ -551,49 +571,52 @@ async def process_audio_file(
             temp_file_path = temp_file.name
         
         try:
-            # Whisper STT 처리
-            logger.info(f"Whisper STT 처리 중 - 모델: {model_name}")
+            # Whisper tiny 모델 STT 처리 (극한 메모리 최적화)
+            logger.info(f"Whisper STT 처리 중 - 모델: tiny (메모리 최적화)")
             
-            # 모델 캐싱으로 성능 최적화
-            if model_name in cached_whisper_models:
-                logger.info(f"캐시된 모델 사용: {model_name}")
-                current_model = cached_whisper_models[model_name]
-            elif model_name == "tiny" and whisper_model is not None:
-                logger.info("기본 tiny 모델 사용")
-                current_model = whisper_model
-                cached_whisper_models["tiny"] = whisper_model
-            else:
-                logger.info(f"새 모델 로딩 중: {model_name}")
-                logger.warning(f"⚠️ 모델 '{model_name}' 다운로드가 필요할 수 있습니다. 시간이 오래 걸릴 수 있습니다.")
+            try:
+                # 메모리 사용량 체크
+                import psutil
+                import gc
                 
-                try:
-                    # 모델 로딩에 시간이 오래 걸릴 수 있으므로 로깅 강화
-                    import time
-                    start_loading_time = time.time()
-                    current_model = whisper.load_model(model_name)
-                    loading_time = time.time() - start_loading_time
-                    logger.info(f"✅ 모델 '{model_name}' 로딩 완료 (소요시간: {loading_time:.2f}초)")
-                    cached_whisper_models[model_name] = current_model
-                except Exception as model_error:
-                    logger.error(f"❌ 모델 '{model_name}' 로딩 실패: {model_error}")
-                    
-                    # 모델 로딩 실패 시 기본 모델로 폴백
-                    if model_name != "tiny" and whisper_model is not None:
-                        logger.info("🔄 기본 'tiny' 모델로 폴백합니다...")
-                        current_model = whisper_model
-                        cached_whisper_models["tiny"] = whisper_model
-                    else:
-                        raise HTTPException(
-                            status_code=500, 
-                            detail=f"Whisper 모델 '{model_name}' 로딩에 실패했습니다: {str(model_error)}"
-                        )
-            
-            # STT 실행
-            result = current_model.transcribe(
-                temp_file_path, 
-                language=language,
-                verbose=True
-            )
+                def check_memory():
+                    try:
+                        process = psutil.Process()
+                        memory_mb = process.memory_info().rss / 1024 / 1024
+                        logger.info(f"🧠 STT 처리 중 메모리: {memory_mb:.1f}MB")
+                        if memory_mb > 450:
+                            logger.warning("⚠️ 메모리 임계점 근접, 가비지 컬렉션 실행")
+                            gc.collect()
+                        return memory_mb
+                    except:
+                        return 0
+                
+                check_memory()
+                
+                # tiny 모델 강제 사용 (메모리 절약)
+                current_model = whisper_model
+                if current_model is None:
+                    raise HTTPException(status_code=500, detail="Whisper 모델이 초기화되지 않았습니다")
+                
+                logger.info(f"📁 처리할 파일: {temp_file_path}")
+                
+                # STT 실행 (메모리 최적화 옵션)
+                result = current_model.transcribe(
+                    temp_file_path,
+                    language=language,
+                    verbose=False,  # 메모리 절약
+                    fp16=False,  # CPU에서는 fp16 비활성화
+                )
+                
+                logger.info("✅ Whisper STT 처리 완료")
+                check_memory()
+                
+            except Exception as stt_error:
+                logger.error(f"❌ Whisper STT 처리 실패: {stt_error}")
+                raise HTTPException(
+                    status_code=500, 
+                    detail=f"음성 인식 처리 중 오류가 발생했습니다: {str(stt_error)}"
+                )
             
             # 세그먼트 데이터 처리
             segments = []
@@ -792,70 +815,70 @@ async def process_audio_file_from_directory(
         
         logger.info(f"STT 처리 시작 - File ID: {file_id}, 파일경로: {file_path}")
         
-        # Whisper STT 처리
-        logger.info(f"Whisper STT 처리 중 - 모델: {model_name}")
-        
-        # 모델 캐싱으로 성능 최적화
-        if model_name in cached_whisper_models:
-            logger.info(f"캐시된 모델 사용: {model_name}")
-            current_model = cached_whisper_models[model_name]
-        elif model_name == "tiny" and whisper_model is not None:
-            logger.info("기본 tiny 모델 사용")
-            current_model = whisper_model
-            cached_whisper_models["tiny"] = whisper_model
-        else:
-            logger.info(f"새 모델 로딩 중: {model_name}")
-            logger.warning(f"⚠️ 모델 '{model_name}' 다운로드가 필요할 수 있습니다. 시간이 오래 걸릴 수 있습니다.")
-            
-            try:
-                # 모델 로딩에 시간이 오래 걸릴 수 있으므로 로깅 강화
-                import time
-                start_loading_time = time.time()
-                current_model = whisper.load_model(model_name)
-                loading_time = time.time() - start_loading_time
-                logger.info(f"✅ 모델 '{model_name}' 로딩 완료 (소요시간: {loading_time:.2f}초)")
-                cached_whisper_models[model_name] = current_model
-            except Exception as model_error:
-                logger.error(f"❌ 모델 '{model_name}' 로딩 실패: {model_error}")
-                
-                # 모델 로딩 실패 시 기본 모델로 폴백
-                if model_name != "tiny" and whisper_model is not None:
-                    logger.info("🔄 기본 'tiny' 모델로 폴백합니다...")
-                    current_model = whisper_model
-                    cached_whisper_models["tiny"] = whisper_model
-                else:
-                    raise HTTPException(
-                        status_code=500, 
-                        detail=f"Whisper 모델 '{model_name}' 로딩에 실패했습니다: {str(model_error)}"
-                    )
-        
-        # STT 실행
-        logger.info(f"Whisper transcribe 시작 - 파일: {file_path}")
-        logger.info(f"Whisper transcribe 시작 - 언어: {language}")
+        # Whisper tiny 모델 STT 처리 (극한 메모리 최적화)
+        logger.info(f"Whisper STT 처리 중 - 모델: tiny (메모리 최적화)")
         
         try:
+            # 메모리 최적화: tiny 모델만 강제 사용
+            if model_name != "tiny":
+                logger.warning(f"⚠️ Render 512MB 제한으로 인해 {model_name} → tiny로 변경")
+                model_name = "tiny"
+            
+            # 기본 tiny 모델 사용 (메모리 절약)
+            current_model = whisper_model
+            if current_model is None:
+                raise HTTPException(status_code=500, detail="Whisper 모델이 초기화되지 않았습니다")
+            
+            logger.info("✅ Whisper tiny 모델 사용 (메모리 최적화)")
+        
+            # STT 실행 (메모리 최적화)
+            logger.info(f"📁 처리할 파일: {file_path}")
+            logger.info(f"🌍 언어 설정: {language}")
+            
+            # 메모리 사용량 체크
+            import psutil
+            import gc
+            
+            def check_memory():
+                try:
+                    process = psutil.Process()
+                    memory_mb = process.memory_info().rss / 1024 / 1024
+                    logger.info(f"🧠 STT 처리 중 메모리: {memory_mb:.1f}MB")
+                    if memory_mb > 450:
+                        logger.warning("⚠️ 메모리 임계점 근접, 가비지 컬렉션 실행")
+                        gc.collect()
+                    return memory_mb
+                except:
+                    return 0
+            
+            check_memory()
+            
+            # STT 실행 (메모리 최적화 옵션)
             result = current_model.transcribe(
-                file_path, 
+                file_path,
                 language=language,
-                verbose=True
+                verbose=False,  # 메모리 절약
+                fp16=False,  # CPU에서는 fp16 비활성화
             )
-            logger.info(f"Whisper transcribe 완료 - 텍스트 길이: {len(result.get('text', ''))}")
+            
+            logger.info(f"✅ Whisper transcribe 완료 - 텍스트 길이: {len(result.get('text', ''))}")
+            check_memory()
+            
         except Exception as transcribe_error:
-            logger.error(f"Whisper transcribe 실패 - 파일: {file_path}")
-            logger.error(f"Whisper transcribe 실패 - 오류: {transcribe_error}")
-            logger.error(f"Whisper transcribe 실패 - 오류 타입: {type(transcribe_error).__name__}")
+            logger.error(f"❌ Whisper transcribe 실패 - 파일: {file_path}")
+            logger.error(f"❌ 오류 내용: {transcribe_error}")
             
             # FFmpeg 관련 오류 감지
             error_msg = str(transcribe_error)
             if "WinError 2" in error_msg or "CreateProcess" in error_msg:
                 raise HTTPException(
                     status_code=500,
-                    detail="FFmpeg가 설치되지 않았습니다. Whisper는 오디오 처리를 위해 FFmpeg가 필요합니다. FFmpeg를 설치한 후 다시 시도해주세요."
+                    detail="FFmpeg가 설치되지 않았습니다. Whisper는 오디오 처리를 위해 FFmpeg가 필요합니다."
                 )
             else:
                 raise HTTPException(
                     status_code=500,
-                    detail=f"음성 인식 처리 실패: {str(transcribe_error)}"
+                    detail=f"음성 인식 처리 중 오류가 발생했습니다: {str(transcribe_error)}"
                 )
         
         # 세그먼트 데이터 처리
@@ -1602,31 +1625,35 @@ async def clear_whisper_cache():
 
 @app.post("/api/reload-base-model")
 async def reload_base_model():
-    """기본 Whisper 모델을 다시 로딩합니다"""
+    """Whisper tiny 모델을 다시 로딩합니다 (메모리 최적화)"""
     global whisper_model
     
     try:
-        logger.info("기본 Whisper 모델 재로딩 시작...")
+        logger.info("Whisper tiny 모델 재로딩 시작... (메모리 최적화)")
         
         # 기존 모델 정리
-        model_size = os.getenv("STT_MODEL", "tiny")
-        if model_size in cached_whisper_models:
-            del cached_whisper_models[model_size]
+        if whisper_model is not None:
+            del whisper_model
+        cached_whisper_models.clear()
         
-        # 새로 로딩
+        # 가비지 컬렉션
+        import gc
+        gc.collect()
+        
+        # 새로 로딩 (tiny 모델 강제)
         import time
         start_time = time.time()
-        whisper_model = whisper.load_model(model_size)
+        whisper_model = whisper.load_model("tiny")
         loading_time = time.time() - start_time
         
         # 캐시에 저장
-        cached_whisper_models[model_size] = whisper_model
+        cached_whisper_models["tiny"] = whisper_model
         
-        logger.info(f"기본 Whisper {model_size} 모델 재로딩 완료 (소요시간: {loading_time:.2f}초)")
+        logger.info(f"Whisper tiny 모델 재로딩 완료 (소요시간: {loading_time:.2f}초)")
         
         return {
             "status": "success",
-            "message": "기본 Whisper 모델이 성공적으로 재로딩되었습니다.",
+            "message": "Whisper tiny 모델이 성공적으로 재로딩되었습니다.",
             "loading_time": round(loading_time, 2),
             "timestamp": datetime.now().isoformat()
         }
