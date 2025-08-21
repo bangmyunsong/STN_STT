@@ -12,9 +12,9 @@ python-dotenv
 requests==2.31.0
 psutil
 
-# 극경량 PyTorch CPU 전용 (안정 버전)
-torch==2.1.0
-torchaudio==2.1.0
+# 극경량 PyTorch CPU 전용 (사용 가능한 최소 버전)
+torch==2.5.0
+torchaudio==2.5.0
 
 # Whisper tiny 모델 (필수)
 openai-whisper
