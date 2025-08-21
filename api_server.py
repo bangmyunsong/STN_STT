@@ -299,7 +299,7 @@ class ERPRegisterResponse(BaseModel):
 
 class STTRequest(BaseModel):
     """STT 처리 요청 모델"""
-    model_name: Optional[str] = Field("base", description="Whisper 모델명")
+    model_name: Optional[str] = Field("tiny", description="Whisper 모델명")
     language: Optional[str] = Field(None, description="언어 코드")
     enable_diarization: Optional[bool] = Field(True, description="화자 분리 활성화")
 
@@ -320,6 +320,13 @@ def initialize_models():
     global whisper_model, erp_extractor, supabase_manager
     
     logger.info("🚀 모델 초기화 시작...")
+
+    # 메모리 최적화 설정
+    import os
+    os.environ["OMP_NUM_THREADS"] = "1"
+    os.environ["MKL_NUM_THREADS"] = "1" 
+    os.environ["TOKENIZERS_PARALLELISM"] = "false"
+    logger.info("💾 메모리 최적화 설정 완료")
     
     # 1. Whisper 모델 로드 (가장 중요)
     try:
@@ -328,13 +335,16 @@ def initialize_models():
         # 모델 로딩 시간 측정
         import time
         start_time = time.time()
-        whisper_model = whisper.load_model("base")
+        # 환경변수에서 모델 크기 가져오기 (기본값: tiny)
+        model_size = os.getenv("STT_MODEL", "tiny")
+        logger.info(f"🔧 환경변수 STT_MODEL: {model_size}")
+        whisper_model = whisper.load_model(model_size)
         loading_time = time.time() - start_time
         
-        logger.info(f"✅ Whisper 기본 모델 로딩 완료 (소요시간: {loading_time:.2f}초)")
+        logger.info(f"✅ Whisper {model_size} 모델 로딩 완료 (소요시간: {loading_time:.2f}초)")
         
-        # 기본 모델을 캐시에 저장
-        cached_whisper_models["base"] = whisper_model
+        # 모델을 캐시에 저장
+        cached_whisper_models[model_size] = whisper_model
         
     except Exception as e:
         logger.error(f"❌ Whisper 모델 로딩 실패: {e}")
@@ -494,7 +504,7 @@ async def register_erp_sample(
 @app.post("/api/stt-process", response_model=STTResponse)
 async def process_audio_file(
     file: UploadFile = File(..., description="업로드할 음성 파일"),
-    model_name: str = "base",
+    model_name: str = "tiny",
     language: Optional[str] = None,
     enable_diarization: bool = True,
     extract_erp: bool = True,
@@ -536,10 +546,10 @@ async def process_audio_file(
             if model_name in cached_whisper_models:
                 logger.info(f"캐시된 모델 사용: {model_name}")
                 current_model = cached_whisper_models[model_name]
-            elif model_name == "base" and whisper_model is not None:
-                logger.info("기본 base 모델 사용")
+            elif model_name == "tiny" and whisper_model is not None:
+                logger.info("기본 tiny 모델 사용")
                 current_model = whisper_model
-                cached_whisper_models["base"] = whisper_model
+                cached_whisper_models["tiny"] = whisper_model
             else:
                 logger.info(f"새 모델 로딩 중: {model_name}")
                 logger.warning(f"⚠️ 모델 '{model_name}' 다운로드가 필요할 수 있습니다. 시간이 오래 걸릴 수 있습니다.")
@@ -556,10 +566,10 @@ async def process_audio_file(
                     logger.error(f"❌ 모델 '{model_name}' 로딩 실패: {model_error}")
                     
                     # 모델 로딩 실패 시 기본 모델로 폴백
-                    if model_name != "base" and whisper_model is not None:
-                        logger.info("🔄 기본 'base' 모델로 폴백합니다...")
+                    if model_name != "tiny" and whisper_model is not None:
+                        logger.info("🔄 기본 'tiny' 모델로 폴백합니다...")
                         current_model = whisper_model
-                        cached_whisper_models["base"] = whisper_model
+                        cached_whisper_models["tiny"] = whisper_model
                     else:
                         raise HTTPException(
                             status_code=500, 
@@ -716,7 +726,7 @@ async def process_audio_file(
 @app.post("/api/stt-process-file", response_model=STTResponse)
 async def process_audio_file_from_directory(
     filename: str,
-    model_name: str = "base",
+    model_name: str = "tiny",
     language: Optional[str] = None,
     enable_diarization: bool = True,
     extract_erp: bool = True,
@@ -777,10 +787,10 @@ async def process_audio_file_from_directory(
         if model_name in cached_whisper_models:
             logger.info(f"캐시된 모델 사용: {model_name}")
             current_model = cached_whisper_models[model_name]
-        elif model_name == "base" and whisper_model is not None:
-            logger.info("기본 base 모델 사용")
+        elif model_name == "tiny" and whisper_model is not None:
+            logger.info("기본 tiny 모델 사용")
             current_model = whisper_model
-            cached_whisper_models["base"] = whisper_model
+            cached_whisper_models["tiny"] = whisper_model
         else:
             logger.info(f"새 모델 로딩 중: {model_name}")
             logger.warning(f"⚠️ 모델 '{model_name}' 다운로드가 필요할 수 있습니다. 시간이 오래 걸릴 수 있습니다.")
@@ -797,10 +807,10 @@ async def process_audio_file_from_directory(
                 logger.error(f"❌ 모델 '{model_name}' 로딩 실패: {model_error}")
                 
                 # 모델 로딩 실패 시 기본 모델로 폴백
-                if model_name != "base" and whisper_model is not None:
-                    logger.info("🔄 기본 'base' 모델로 폴백합니다...")
+                if model_name != "tiny" and whisper_model is not None:
+                    logger.info("🔄 기본 'tiny' 모델로 폴백합니다...")
                     current_model = whisper_model
-                    cached_whisper_models["base"] = whisper_model
+                    cached_whisper_models["tiny"] = whisper_model
                 else:
                     raise HTTPException(
                         status_code=500, 
@@ -1587,19 +1597,20 @@ async def reload_base_model():
         logger.info("기본 Whisper 모델 재로딩 시작...")
         
         # 기존 모델 정리
-        if "base" in cached_whisper_models:
-            del cached_whisper_models["base"]
+        model_size = os.getenv("STT_MODEL", "tiny")
+        if model_size in cached_whisper_models:
+            del cached_whisper_models[model_size]
         
         # 새로 로딩
         import time
         start_time = time.time()
-        whisper_model = whisper.load_model("base")
+        whisper_model = whisper.load_model(model_size)
         loading_time = time.time() - start_time
         
         # 캐시에 저장
-        cached_whisper_models["base"] = whisper_model
+        cached_whisper_models[model_size] = whisper_model
         
-        logger.info(f"기본 Whisper 모델 재로딩 완료 (소요시간: {loading_time:.2f}초)")
+        logger.info(f"기본 Whisper {model_size} 모델 재로딩 완료 (소요시간: {loading_time:.2f}초)")
         
         return {
             "status": "success",

@@ -1,23 +1,30 @@
-openai-whisper
-torch==2.6.0
-torchaudio==2.6.0
-soundfile
-pydub
-python-multipart
-pyannote-audio
-matplotlib
-pandas
-plotly
-python-dotenv
-# GPT API 연동
-openai>=1.0.0
-# FastAPI 서버
+# Render 무료 플랜용 경량화 requirements (Tiny 모델)
+# FastAPI 핵심 (필수)
 fastapi>=0.104.0
 uvicorn[standard]>=0.24.0
-# Supabase 연동
-supabase>=2.0.0
-# 데이터 검증 및 처리
+python-multipart
 pydantic>=2.0.0
+
+# 기본 유틸리티
+python-dotenv
 requests>=2.31.0
-# 스케줄러 (일별 폴더 자동 생성)
-APScheduler>=3.10.0 
+
+# 경량 PyTorch (CPU 전용)
+torch==2.6.0+cpu --extra-index-url https://download.pytorch.org/whl/cpu
+torchaudio==2.6.0+cpu --extra-index-url https://download.pytorch.org/whl/cpu
+
+# Whisper (tiny 모델용)
+openai-whisper
+
+# 오디오 처리 최소한
+soundfile
+pydub
+
+# 데이터베이스
+supabase>=2.0.0
+
+# GPT API (ERP 추출용)  
+openai>=1.0.0
+
+# 스케줄러 (백그라운드 작업)
+APScheduler>=3.10.0

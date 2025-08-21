@@ -1,0 +1,23 @@
+openai-whisper
+torch==2.6.0
+torchaudio==2.6.0
+soundfile
+pydub
+python-multipart
+pyannote-audio
+matplotlib
+pandas
+plotly
+python-dotenv
+# GPT API 연동
+openai>=1.0.0
+# FastAPI 서버
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+# Supabase 연동
+supabase>=2.0.0
+# 데이터 검증 및 처리
+pydantic>=2.0.0
+requests>=2.31.0
+# 스케줄러 (일별 폴더 자동 생성)
+APScheduler>=3.10.0 
