@@ -9,9 +9,9 @@ pydantic>=2.0.0
 python-dotenv
 requests>=2.31.0
 
-# 경량 PyTorch (CPU 전용)
-torch==2.6.0+cpu --extra-index-url https://download.pytorch.org/whl/cpu
-torchaudio==2.6.0+cpu --extra-index-url https://download.pytorch.org/whl/cpu
+# PyTorch (기본 버전 - CPU 우선)
+torch>=2.5.0,<2.9.0
+torchaudio>=2.5.0,<2.9.0
 
 # Whisper (tiny 모델용)
 openai-whisper
