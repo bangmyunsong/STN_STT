@@ -321,12 +321,24 @@ def initialize_models():
     
     logger.info("🚀 모델 초기화 시작...")
 
-    # 메모리 최적화 설정
+    # 극단적 메모리 최적화 설정 (Render 512MB 제한 대응)
     import os
+    import gc
+    
+    # 스레드 수 제한
     os.environ["OMP_NUM_THREADS"] = "1"
     os.environ["MKL_NUM_THREADS"] = "1" 
     os.environ["TOKENIZERS_PARALLELISM"] = "false"
-    logger.info("💾 메모리 최적화 설정 완료")
+    os.environ["TORCH_NUM_THREADS"] = "1"
+    
+    # 메모리 최적화 플래그
+    os.environ["PYTORCH_JIT"] = "0"  # JIT 컴파일 비활성화
+    os.environ["CUDA_VISIBLE_DEVICES"] = ""  # CUDA 완전 비활성화
+    
+    # 가비지 컬렉션 강제 실행
+    gc.collect()
+    
+    logger.info("💾 극단적 메모리 최적화 설정 완료 (Render 512MB 대응)")
     
     # 1. Whisper 모델 로드 (가장 중요)
     try:
@@ -1630,21 +1642,34 @@ async def startup_event():
     global scheduler
     logger.info("API 서버 시작 중...")
     
-    # FFmpeg 경로 설정 (Windows winget 설치)
+    # FFmpeg 경로 설정 (Render/Linux 환경 호환)
     try:
-        import os
-        ffmpeg_path = r"C:\Users\bangm\AppData\Local\Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-7.1.1-full_build\bin"
-        if os.path.exists(ffmpeg_path):
-            current_path = os.environ.get('PATH', '')
-            if ffmpeg_path not in current_path:
-                os.environ['PATH'] = current_path + os.pathsep + ffmpeg_path
-                logger.info(f"FFmpeg 경로 추가됨: {ffmpeg_path}")
+        # Render 환경에서는 FFmpeg가 이미 설치되어 있으므로 Windows 특정 경로 설정 건너뛰기
+        import platform
+        if platform.system() == "Windows":
+            # Windows 환경에서만 특정 경로 확인
+            potential_paths = [
+                r"C:\Users\bangm\AppData\Local\Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-7.1.1-full_build\bin",
+                r"C:\ffmpeg\bin",
+                r"C:\Program Files\ffmpeg\bin"
+            ]
+            
+            for ffmpeg_path in potential_paths:
+                if os.path.exists(ffmpeg_path):
+                    current_path = os.environ.get('PATH', '')
+                    if ffmpeg_path not in current_path:
+                        os.environ['PATH'] = current_path + os.pathsep + ffmpeg_path
+                        logger.info(f"FFmpeg 경로 추가됨: {ffmpeg_path}")
+                    else:
+                        logger.info("FFmpeg 경로가 이미 PATH에 있습니다.")
+                    break
             else:
-                logger.info("FFmpeg 경로가 이미 PATH에 있습니다.")
+                logger.info("Windows에서 FFmpeg 경로를 찾을 수 없지만 계속 진행합니다.")
         else:
-            logger.warning(f"FFmpeg 경로를 찾을 수 없습니다: {ffmpeg_path}")
+            # Linux/Render 환경에서는 FFmpeg가 일반적으로 시스템에 설치되어 있음
+            logger.info("Linux 환경: 시스템 FFmpeg 사용")
     except Exception as e:
-        logger.warning(f"FFmpeg 경로 설정 실패: {e}")
+        logger.warning(f"FFmpeg 경로 설정 실패 (계속 진행): {e}")
     
     try:
         # 모델 초기화

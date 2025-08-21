@@ -1,30 +1,28 @@
-# Render 무료 플랜용 경량화 requirements (Tiny 모델)
-# FastAPI 핵심 (필수)
+# Render 무료 플랜용 초경량화 requirements (Tiny 모델)
+# 512MB 메모리 제한 하에서 작동하도록 최적화
+
+# FastAPI 핵심만 (필수)
 fastapi>=0.104.0
-uvicorn[standard]>=0.24.0
+uvicorn>=0.24.0
 python-multipart
 pydantic>=2.0.0
 
-# 기본 유틸리티
+# 기본 유틸리티 (최소한)
 python-dotenv
 requests>=2.31.0
 
-# PyTorch (기본 버전 - CPU 우선)
-torch>=2.5.0,<2.9.0
-torchaudio>=2.5.0,<2.9.0
-
-# Whisper (tiny 모델용)
+# Whisper 최소 의존성 (PyTorch 제외하고 CPU 추론만)
 openai-whisper
 
-# 오디오 처리 최소한
+# 오디오 처리 (최소한)
 soundfile
 pydub
 
-# 데이터베이스
-supabase>=2.0.0
-
-# GPT API (ERP 추출용)  
+# API 통신만 (필수)
 openai>=1.0.0
 
-# 스케줄러 (백그라운드 작업)
-APScheduler>=3.10.0
+# 스케줄러 제외 (메모리 절약)
+# APScheduler>=3.10.0
+
+# Supabase 제외 (메모리 절약) - DB 기능 비활성화
+# supabase>=2.0.0
