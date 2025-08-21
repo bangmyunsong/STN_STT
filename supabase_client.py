@@ -6,10 +6,20 @@ STT 시스템 데이터 저장 및 관리를 위한 Supabase 연동
 import os
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
-from supabase import create_client, Client
 from dotenv import load_dotenv
 import logging
 import json
+
+# Supabase 조건부 import (메모리 절약을 위해 옵션화)
+try:
+    from supabase import create_client, Client
+    SUPABASE_AVAILABLE = True
+except ImportError:
+    SUPABASE_AVAILABLE = False
+    create_client = None
+    Client = None
+    print("⚠️ Supabase 패키지가 설치되지 않았습니다. 데이터베이스 기능이 비활성화됩니다.")
+    print("⚠️ 설치하려면: pip install supabase>=2.0.0")
 
 # 환경변수 로드
 load_dotenv('config.env')
@@ -22,6 +32,9 @@ class SupabaseManager:
     
     def __init__(self):
         """Supabase 클라이언트 초기화"""
+        if not SUPABASE_AVAILABLE:
+            raise ImportError("Supabase 패키지가 설치되지 않았습니다. 데이터베이스 기능을 사용할 수 없습니다.")
+        
         self.supabase_url = os.getenv('SUPABASE_URL')
         self.supabase_key = os.getenv('SUPABASE_ANON_KEY')
         
@@ -621,36 +634,60 @@ class SupabaseManager:
 # 전역 Supabase 매니저 인스턴스
 _supabase_manager: Optional[SupabaseManager] = None
 
-def get_supabase_manager() -> SupabaseManager:
+def get_supabase_manager() -> Optional[SupabaseManager]:
     """Supabase 매니저 싱글톤 인스턴스를 반환합니다"""
     global _supabase_manager
     
+    if not SUPABASE_AVAILABLE:
+        logger.warning("Supabase 패키지가 사용 불가능합니다. None을 반환합니다.")
+        return None
+    
     if _supabase_manager is None:
-        _supabase_manager = SupabaseManager()
+        try:
+            _supabase_manager = SupabaseManager()
+        except (ImportError, ValueError) as e:
+            logger.warning(f"Supabase 매니저 초기화 실패: {e}")
+            return None
     
     return _supabase_manager
 
 # 편의 함수들
 def save_stt_result(file_name: str, file_id: str, transcript: str, 
                    segments: List[Dict], processing_time: float,
-                   model_name: str = "base", language: Optional[str] = None) -> int:
+                   model_name: str = "base", language: Optional[str] = None) -> Optional[int]:
     """STT 결과를 Supabase에 저장하는 편의 함수"""
     manager = get_supabase_manager()
     
-    # 세션 생성
-    session = manager.create_stt_session(file_name, file_id, model_name, language)
+    if manager is None:
+        logger.warning("Supabase 매니저를 사용할 수 없어 STT 결과 저장을 건너뜁니다.")
+        return None
     
-    # 결과 업데이트
-    manager.update_stt_session(session['id'], transcript, segments, processing_time)
-    
-    return session['id']
+    try:
+        # 세션 생성
+        session = manager.create_stt_session(file_name, file_id, model_name, language)
+        
+        # 결과 업데이트
+        manager.update_stt_session(session['id'], transcript, segments, processing_time)
+        
+        return session['id']
+    except Exception as e:
+        logger.error(f"STT 결과 저장 실패: {e}")
+        return None
 
-def save_erp_result(session_id: int, erp_data: Dict[str, str]) -> int:
+def save_erp_result(session_id: int, erp_data: Dict[str, str]) -> Optional[int]:
     """ERP 추출 결과를 Supabase에 저장하는 편의 함수"""
     manager = get_supabase_manager()
     
-    extraction = manager.save_erp_extraction(session_id, erp_data)
-    return extraction['id']
+    if manager is None:
+        logger.warning("Supabase 매니저를 사용할 수 없어 ERP 결과 저장을 건너뜁니다.")
+        return None
+    
+    try:
+        extraction = manager.save_erp_extraction(session_id, erp_data)
+        return extraction['id']
+    except Exception as e:
+        logger.error(f"ERP 결과 저장 실패: {e}")
+        return None
 
 # 데이터베이스 스키마 생성 SQL (참고용)
 DATABASE_SCHEMA = """
